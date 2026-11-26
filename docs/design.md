@@ -25,7 +25,11 @@ of your own, and restores it into any clone or worktree of the project.
 ## Concepts
 
 **Store** — a git repository you control (e.g. a private GitHub repo), cloned
-locally to `~/.cache/moreco/store`. It holds configuration for many projects,
+locally to the user cache directory (`~/.cache/moreco/store` on Linux;
+override with `$MORECO_STORE`). The clone is a disposable cache: every
+command resets it to the remote first, and a push that loses a race is rolled
+back. A lock file next to it serializes concurrent runs (e.g. two worktree
+hooks). It holds configuration for many projects,
 one folder per project, mirroring the project's tree:
 
 ```
@@ -47,6 +51,11 @@ repos:
     rootCommit: 3f2a…                        # identity check / fallback
     files: ["**/.vscode/launch.json", "**/.vscode/tasks.json"]
 ```
+
+Matching a checkout to a folder: a listed remote wins (and its root commit
+must agree, catching a URL reused for another project); otherwise the root
+commit alone (the checkout's remotes can then be added with `moreco link`).
+Shallow clones report no root commit, since their history is cut.
 
 Repository identity is the normalized remote URL (`git@github.com:x/y.git` ≡
 `https://github.com/x/y`), with the root commit hash
@@ -134,7 +143,8 @@ exits 0.
 
 ## Build order
 
-1. Store + manifest + repo identity.
+1. ✅ Store + manifest + repo identity (`internal/store`, `internal/manifest`,
+   `internal/repoid`), with `moreco init`, `link` and `info`.
 2. Path tokens.
 3. Worktree state and the three-way file merge.
 4. CLI: init, link, pull, push, status/diff, resolve.

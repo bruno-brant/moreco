@@ -205,6 +205,53 @@ func (s *Store) ReadFolder(folder string) (map[string][]byte, error) {
 	return files, err
 }
 
+// FolderTree returns the git tree hash of a project folder at a commit, or ""
+// if the folder does not exist there. Equal hashes mean identical content.
+func (s *Store) FolderTree(commit, folder string) (string, error) {
+	if commit == "" {
+		return "", nil
+	}
+	out, err := gitx.Run(s.Dir, "rev-parse", "--verify", "--quiet", commit+":"+folder)
+	if err != nil && gitx.ExitCode(err) == 1 {
+		return "", nil
+	}
+	return out, err
+}
+
+// HasCommit reports whether commit exists in the store's history.
+func (s *Store) HasCommit(commit string) bool {
+	_, err := gitx.Run(s.Dir, "cat-file", "-e", commit+"^{commit}")
+	return err == nil
+}
+
+// ReadFolderAt returns the files of a project folder as of a past commit.
+func (s *Store) ReadFolderAt(commit, folder string) (map[string][]byte, error) {
+	if err := manifest.ValidateFolder(folder); err != nil {
+		return nil, err
+	}
+	files := map[string][]byte{}
+	out, err := gitx.RunRaw(s.Dir, nil, "ls-tree", "-r", "-z", commit, "--", folder+"/")
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range strings.Split(string(out), "\x00") {
+		meta, p, ok := strings.Cut(entry, "\t")
+		if !ok {
+			continue
+		}
+		f := strings.Fields(meta) // mode type hash
+		if len(f) != 3 || f[1] != "blob" {
+			continue
+		}
+		data, err := gitx.RunRaw(s.Dir, nil, "cat-file", "blob", f[2])
+		if err != nil {
+			return nil, err
+		}
+		files[strings.TrimPrefix(p, folder+"/")] = data
+	}
+	return files, nil
+}
+
 // WriteFolder makes a project folder contain exactly the given files (keyed
 // by slash-separated relative path), deleting any others. Changes are not
 // committed until CommitAndPush.

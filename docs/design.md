@@ -62,9 +62,12 @@ Repository identity is the normalized remote URL (`git@github.com:x/y.git` ≡
 (`git rev-list --max-parents=0 HEAD`) as a stable cross-check: it is the same
 in every clone, fork and worktree. Several remotes may point at one folder.
 
-**Path tokens** — on push, occurrences of the worktree's absolute root path
-are replaced with `{{moreco:root}}`; on pull, the token is expanded to the
-current worktree's root. This fixes configs that hard-code the main checkout.
+**Path tokens** — on push, occurrences of the absolute root path of *any*
+worktree of the repository are replaced with `{{moreco:root}}`; on pull, the
+token is expanded to the current worktree's root. Matches must be whole path
+prefixes (`/src/app` does not match `/src/app2`). Windows roots also have
+`{{moreco:root:win}}` (backslashes) and `{{moreco:root:json}}` (escaped
+backslashes) forms, matched case-insensitively. This fixes configs that hard-code the main checkout.
 (Prefer `${workspaceFolder}` in the files themselves where VS Code supports it;
 moreco leaves VS Code variables untouched.)
 
@@ -74,8 +77,17 @@ Each worktree records, in `.git/moreco-state.json` (per-worktree for linked
 worktrees, via `git rev-parse --git-path`):
 
 - the store commit it last synced with;
-- for every managed file, the content as of that sync (the merge base) and
-  whether the file is currently conflicted.
+- which files are currently conflicted.
+
+The merge base for each file is the store's content at that commit
+(`<commit>:<folder>/<file>`), read from the store's git history, so the state
+file stays tiny.
+
+**Which files are managed** — files under the worktree matching the
+project's globs, except: files the project's own git tracks (already shared;
+moreco reports them as skipped), and anything under `.git`, `node_modules`,
+`.venv`, `.direnv`, `.terraform` or a nested checkout (a directory with its
+own `.git`, e.g. worktrees kept inside the main checkout).
 
 ## Commands (v1)
 
@@ -92,8 +104,10 @@ worktrees, via `git rev-parse --git-path`):
 ### push — like `git push`
 
 1. Refuse if any managed file is conflicted or still contains conflict markers.
-2. Fetch the store. If its HEAD is not the recorded sync commit, refuse:
-   *store has moved on, run `moreco pull` first* (non-fast-forward).
+2. Fetch the store. If this project's folder differs from what it was at the
+   recorded sync commit, refuse: *run `moreco pull` first* (non-fast-forward).
+   Pushes by other projects sharing the store do not count. A worktree that
+   never synced may only push into an empty folder.
 3. Copy every managed file (path tokens applied) into the project's store
    folder. A managed file that was synced before and is now gone locally is
    deleted from the store.
@@ -145,7 +159,8 @@ exits 0.
 
 1. ✅ Store + manifest + repo identity (`internal/store`, `internal/manifest`,
    `internal/repoid`), with `moreco init`, `link` and `info`.
-2. Path tokens.
-3. Worktree state and the three-way file merge.
-4. CLI: init, link, pull, push, status/diff, resolve.
+2. ✅ Path tokens (`internal/pathtok`).
+3. ✅ Worktree state and the three-way file merge (`internal/worktree`,
+   `internal/textmerge`).
+4. ✅ CLI: pull, push, status, resolve (`internal/ops`). `diff` not yet.
 5. `hook install`.
